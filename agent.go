@@ -8,35 +8,35 @@ import (
 
 const numberOfAgents = 10
 const t = 4
-const q int = 2166136261
+const q int64 = 2166136261
 
 var agents []*Agent
 
 type ZmodQ struct {
-	q int
-	G int
+	q int64
+	G int64
 }
 
-func (g ZmodQ) Times(x int, y int) int   { return (x + y) % g.q }
-func (g ZmodQ) Exp(x, y int) int  { return x * y }
-func (g ZmodQ) Identity() int     { return 0 }
-func (g ZmodQ) Inverse(n int) int { return g.q - n }
+func (g ZmodQ) Times(x int64, y int64) int64 { return mod(x+y, g.q) }
+func (g ZmodQ) Exp(x, y int64) int64         { return mod(mod(x, g.q)*mod(y, g.q), g.q) }
+func (g ZmodQ) Identity() int64              { return 0 }
+func (g ZmodQ) Inverse(n int64) int64        { return g.q - n }
 
 var zmodq ZmodQ = ZmodQ{q, 1}
 
 type Group interface {
-	Add(int) int
-	Identity() int
-	Inverse(int) int
+	Add(int64) int64
+	Identity() int64
+	Inverse(int64) int64
 }
 
 type Agent struct {
 	inbox                  chan Message
-	index                  int
+	index                  int64
 	peers                  []*Agent
-	polynomialCoefficients [t - 1]int
-	commitments            [t - 1]int
-	shares                 []int
+	polynomialCoefficients [t - 1]int64
+	commitments            [numberOfAgents][t - 1]int64
+	shares                 []int64
 	validSharesReceived    [numberOfAgents]bool
 }
 
@@ -49,28 +49,36 @@ const (
 
 type Message struct {
 	Type          MessageType
-	From          int
-	IntValue      int
-	IntArrayValue []int
+	From          int64
+	IntValue      int64
+	IntArrayValue []int64
 }
 
-func pow(x int, y int) int {
-	result := 1
-	for i := 0; i < y; i++ {
+func mod(d, m int64) int64 {
+	var res int64 = d % m
+	if (res < 0 && m > 0) || (res > 0 && m < 0) {
+		return res + m
+	}
+	return res
+}
+
+func pow(x int64, y int64) int64 {
+	result := int64(1)
+	for i := int64(0); i < y; i++ {
 		result *= x
 	}
 	return result
 }
 
-func evaluatePolynomial(coeffs [t - 1]int, x int) int {
-	result := 0
+func evaluatePolynomial(coeffs [t - 1]int64, x int64) int64 {
+	result := int64(0)
 	for i, coeff := range coeffs {
-		result += coeff * pow(x, i)
+		result += coeff * pow(x, int64(i))
 	}
 	return result
 }
 
-func newAgent(index int) *Agent {
+func newAgent(index int64) *Agent {
 	inbox := make(chan Message, numberOfAgents*numberOfAgents)
 	return &Agent{inbox: inbox, index: index}
 }
@@ -81,7 +89,7 @@ func (a *Agent) providePeers(agents []*Agent) {
 			a.peers = append(a.peers, agent)
 		}
 	}
-	a.shares = make([]int, numberOfAgents)
+	a.shares = make([]int64, numberOfAgents)
 }
 
 func (a Agent) run(wg *sync.WaitGroup) {
@@ -91,7 +99,7 @@ func (a Agent) run(wg *sync.WaitGroup) {
 	//get coeffs for polynomial
 	for i := 0; i < t-1; i++ {
 		negate := rand.Int()&1 > 0
-		randomCoefficient := rand.Intn(q-1) + 1
+		randomCoefficient := rand.Int63n(q-1) + 1
 		if negate {
 			randomCoefficient = -randomCoefficient
 		}
@@ -104,14 +112,22 @@ func (a Agent) run(wg *sync.WaitGroup) {
 	// TODO: use better group later
 	// using Z mod q under addition as our cyclic group, the generator is 1
 	// in this case, the commitments are the same as the polynomial coefficients
+	var commitments [t - 1]int64
 	for k, coeff := range a.polynomialCoefficients {
-		a.commitments[k] = zmodq.Exp(zmodq.G, coeff)
+		commitments[k] = zmodq.Exp(zmodq.G, coeff)
 	}
 
-	var secretShares []int
+	var secretShares []int64
 	for i := 1; i <= numberOfAgents; i++ {
-		secretShares = append(secretShares, evaluatePolynomial(a.polynomialCoefficients, i))
+		secretShares = append(secretShares, evaluatePolynomial(a.polynomialCoefficients, int64(i)))
 	}
+
+	// broadcast commitments
+	broadcast(Message{
+		Type:          Commitment,
+		From:          a.index,
+		IntArrayValue: commitments[:],
+	})
 
 	for _, agent := range a.peers {
 		agent.tell(Message{
@@ -120,13 +136,6 @@ func (a Agent) run(wg *sync.WaitGroup) {
 			IntValue: secretShares[agent.index],
 		})
 	}
-
-	// broadcast commitments
-	broadcast(Message{
-		Type:          Commitment,
-		From:          a.index,
-		IntArrayValue: a.commitments[:],
-	})
 
 	for {
 		select {
@@ -137,26 +146,28 @@ func (a Agent) run(wg *sync.WaitGroup) {
 			return
 		}
 	}
-
 }
 
 func (a *Agent) handleMessage(message Message) {
 	switch message.Type {
 	case SecretShare:
 		a.shares[message.From] = message.IntValue
-		println("Got SecretShare")
-                accumulator := zmodq.Identity()
-                for k, commitment := range a.commitments {
-                    accumulator = zmodq.Times(accumulator, zmodq.Exp(commitment, zmodq.Exp(message.From, k)))
-                }
-                verificationTarget := zmodq.Exp(zmodq.G, evaluatePolynomial(a.polynomialCoefficients, message.From))
-                if accumulator != verificationTarget {
-                    println(accumulator)
-                    println(verificationTarget)
-                    panic("NOOOOOOOOOOOOO!")
-                }
+		// println("Got SecretSharefrom: ", message.From)
+		accumulator := zmodq.Identity()
+		for k, commitment := range a.commitments[message.From] {
+			accumulator = zmodq.Times(accumulator, zmodq.Exp(commitment, zmodq.Exp(message.From, int64(k))))
+		}
+		verificationTarget := zmodq.Exp(zmodq.G, evaluatePolynomial(a.polynomialCoefficients, message.From))
+		if accumulator != verificationTarget {
+			println("acc: ", accumulator)
+			println("target: ", verificationTarget)
+			println("NOOOOOOOOOOOOO!")
+		} else {
+			println("OK!!")
+		}
 	case Commitment:
-		println("Got Commitment")
+		// println("Got commitment from: ", message.From)
+		copy(a.commitments[message.From][:], message.IntArrayValue)
 	}
 }
 
@@ -176,7 +187,7 @@ func main() {
 	var wg sync.WaitGroup
 
 	for i := 0; i < numberOfAgents; i++ {
-		agents = append(agents, newAgent(i))
+		agents = append(agents, newAgent(int64(i)))
 	}
 	for _, agent := range agents {
 		agent.providePeers(agents)
