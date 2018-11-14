@@ -23,4 +23,12 @@ func TestGroup(t *testing.T) {
 		t.Error(err)
 
 	}
+
+	identity := func(x int64) bool {
+		return z.Exp(z.G, x) == mod(x, 17)
+	}
+	if err := quick.Check(identity, nil); err != nil {
+		t.Error(err)
+
+	}
 }

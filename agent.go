@@ -1,14 +1,14 @@
 package main
 
 import (
-	_ "fmt"
+	"fmt"
 	"math/rand"
 	"sync"
 )
 
 const numberOfAgents = 10
-const t = 4
-const q int64 = 2166136261
+const t = 3
+const q int64 = 17
 
 var agents []*Agent
 
@@ -35,9 +35,9 @@ type Agent struct {
 	index                  int64
 	peers                  []*Agent
 	polynomialCoefficients [t - 1]int64
-	commitments            [numberOfAgents][t - 1]int64
+	commitments            [numberOfAgents+1][t - 1]int64
 	shares                 []int64
-	validSharesReceived    [numberOfAgents]bool
+	validSharesReceived    [numberOfAgents+1]bool
 }
 
 type MessageType uint8
@@ -72,15 +72,15 @@ func pow(x int64, y int64) int64 {
 
 func evaluatePolynomial(coeffs [t - 1]int64, x int64) int64 {
 	result := int64(0)
-	for i, coeff := range coeffs {
-		result += coeff * pow(x, int64(i))
+	for k, coeff := range coeffs {
+		result += coeff * pow(x, int64(k))
 	}
 	return result
 }
 
 func newAgent(index int64) *Agent {
 	inbox := make(chan Message, numberOfAgents*numberOfAgents)
-	return &Agent{inbox: inbox, index: index}
+	return &Agent{inbox: inbox, index: index+1}
 }
 
 func (a *Agent) providePeers(agents []*Agent) {
@@ -89,7 +89,7 @@ func (a *Agent) providePeers(agents []*Agent) {
 			a.peers = append(a.peers, agent)
 		}
 	}
-	a.shares = make([]int64, numberOfAgents)
+	a.shares = make([]int64, numberOfAgents+1)
 }
 
 func (a Agent) run(wg *sync.WaitGroup) {
@@ -97,29 +97,28 @@ func (a Agent) run(wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	//get coeffs for polynomial
-	for i := 0; i < t-1; i++ {
-		negate := rand.Int()&1 > 0
+	for k := 0; k < t-1; k++ {
+		negate := rand.Int() & 1 > 0
 		randomCoefficient := rand.Int63n(q-1) + 1
 		if negate {
 			randomCoefficient = -randomCoefficient
 		}
-		a.polynomialCoefficients[i] = randomCoefficient
+		a.polynomialCoefficients[k] = randomCoefficient
 	}
 
 	//the secret to share is the constant term of the polynomial
 	// secret := a.polynomialCoefficients[0]
 
 	// TODO: use better group later
-	// using Z mod q under addition as our cyclic group, the generator is 1
-	// in this case, the commitments are the same as the polynomial coefficients
 	var commitments [t - 1]int64
 	for k, coeff := range a.polynomialCoefficients {
 		commitments[k] = zmodq.Exp(zmodq.G, coeff)
 	}
 
 	var secretShares []int64
-	for i := 1; i <= numberOfAgents; i++ {
-		secretShares = append(secretShares, evaluatePolynomial(a.polynomialCoefficients, int64(i)))
+	for i := 1; i <= numberOfAgents+1; i++ {
+		secretShares = append(secretShares,
+			evaluatePolynomial(a.polynomialCoefficients, int64(i)))
 	}
 
 	// broadcast commitments
@@ -152,12 +151,22 @@ func (a *Agent) handleMessage(message Message) {
 	switch message.Type {
 	case SecretShare:
 		a.shares[message.From] = message.IntValue
+		// i = a.index
+		// x = a.index
+		// j = message.From
+		// s_j(i) = message.IntValue
+		// k = k
+		// G
 		// println("Got SecretSharefrom: ", message.From)
 		accumulator := zmodq.Identity()
+		var str string
 		for k, commitment := range a.commitments[message.From] {
-			accumulator = zmodq.Times(accumulator, zmodq.Exp(commitment, zmodq.Exp(message.From, int64(k))))
+			accumulator = zmodq.Times(accumulator,
+				zmodq.Exp(commitment, zmodq.Exp(a.index, int64(k))))
+			str += fmt.Sprintf("k: %d, i: %d, com: %d, acc: %d\n", k, a.index, commitment, accumulator)
 		}
-		verificationTarget := zmodq.Exp(zmodq.G, evaluatePolynomial(a.polynomialCoefficients, message.From))
+		println(str)
+		verificationTarget := zmodq.Exp(zmodq.G, message.IntValue)
 		if accumulator != verificationTarget {
 			println("acc: ", accumulator)
 			println("target: ", verificationTarget)
