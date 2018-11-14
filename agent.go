@@ -17,7 +17,7 @@ type ZmodQ struct {
 	G int
 }
 
-func (g ZmodQ) Times(x int) int   { return (g.G + x) % g.q }
+func (g ZmodQ) Times(x int, y int) int   { return (x + y) % g.q }
 func (g ZmodQ) Exp(x, y int) int  { return x * y }
 func (g ZmodQ) Identity() int     { return 0 }
 func (g ZmodQ) Inverse(n int) int { return g.q - n }
@@ -145,6 +145,16 @@ func (a *Agent) handleMessage(message Message) {
 	case SecretShare:
 		a.shares[message.From] = message.IntValue
 		println("Got SecretShare")
+                accumulator := zmodq.Identity()
+                for k, commitment := range a.commitments {
+                    accumulator = zmodq.Times(accumulator, zmodq.Exp(commitment, zmodq.Exp(message.From, k)))
+                }
+                verificationTarget := zmodq.Exp(zmodq.G, evaluatePolynomial(a.polynomialCoefficients, message.From))
+                if accumulator != verificationTarget {
+                    println(accumulator)
+                    println(verificationTarget)
+                    panic("NOOOOOOOOOOOOO!")
+                }
 	case Commitment:
 		println("Got Commitment")
 	}
