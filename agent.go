@@ -10,6 +10,37 @@ const numberOfAgents = 10
 const t = 4
 const q int = 2166136261
 
+type Z struct {
+	q int
+	G int
+}
+
+func (z Z) Times(x int) int {
+	return (z.G + x) % z.q
+}
+
+func (z Z) Exp(x, y int) int {
+	acc := x
+	for i := 0; i < y; i++ {
+		acc = z.Times(acc)
+	}
+	return acc
+}
+
+func (z Z) Identity() int {
+	return 0
+}
+
+func (z Z) Inverse(n int) int {
+	return z.q - n
+}
+
+type Group interface {
+	Add(int) int
+	Identity() int
+	Inverse(int) int
+}
+
 type Agent struct {
 	inbox chan Message
 	index int
