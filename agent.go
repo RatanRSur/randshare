@@ -17,21 +17,10 @@ type ZmodQ struct {
 	G int
 }
 
-func (g ZmodQ) Times(x int) int {
-	return (g.G + x) % g.q
-}
-
-func (g ZmodQ) Exp(x, y int) int {
-	return x * y
-}
-
-func (g ZmodQ) Identity() int {
-	return 0
-}
-
-func (g ZmodQ) Inverse(n int) int {
-	return g.q - n
-}
+func (g ZmodQ) Times(x int) int   { return (g.G + x) % g.q }
+func (g ZmodQ) Exp(x, y int) int  { return x * y }
+func (g ZmodQ) Identity() int     { return 0 }
+func (g ZmodQ) Inverse(n int) int { return g.q - n }
 
 var zmodq ZmodQ = ZmodQ{q, 1}
 
