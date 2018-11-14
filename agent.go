@@ -5,8 +5,8 @@ import (
         "math/rand"
 )
 
-const numberOfAgents = 5
-const t = 3
+const numberOfAgents = 10
+const t = 4
 const q int = 2166136261
 
 type Agent struct {
