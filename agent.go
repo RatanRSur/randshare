@@ -2,7 +2,7 @@ package main
 
 import (
 	_ "fmt"
-        "math/rand"
+	"math/rand"
 )
 
 const numberOfAgents = 10
