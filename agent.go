@@ -7,8 +7,8 @@ import (
 )
 
 const numberOfAgents = 10
-const t = 3
-const q int64 = 17
+const t = 4
+const q int64 = 7
 
 var agents []*Agent
 
@@ -17,10 +17,16 @@ type ZmodQ struct {
 	G int64
 }
 
-func (g ZmodQ) Times(x int64, y int64) int64 { return mod(x+y, g.q) }
-func (g ZmodQ) Exp(x, y int64) int64         { return mod(mod(x, g.q)*mod(y, g.q), g.q) }
-func (g ZmodQ) Identity() int64              { return 0 }
-func (g ZmodQ) Inverse(n int64) int64        { return g.q - n }
+func (g ZmodQ) Times(x int64, y int64) int64 { return (x + y) % g.q }
+func (g ZmodQ) Exp(x, y int64) int64 {
+	accumulator := g.Identity()
+	for i := int64(0); i < y; i++ {
+		accumulator = g.Times(accumulator, x)
+	}
+	return accumulator
+}
+func (g ZmodQ) Identity() int64       { return 0 }
+func (g ZmodQ) Inverse(n int64) int64 { return g.q - n }
 
 var zmodq ZmodQ = ZmodQ{q, 1}
 
@@ -52,14 +58,6 @@ type Message struct {
 	From          int64
 	IntValue      int64
 	IntArrayValue []int64
-}
-
-func mod(d, m int64) int64 {
-	var result int64 = d % m
-	if (result < 0 && m > 0) || (result > 0 && m < 0) {
-		return result + m
-	}
-	return result
 }
 
 func pow(x int64, y int64) int64 {
@@ -98,12 +96,7 @@ func (a Agent) run(wg *sync.WaitGroup) {
 
 	//get coeffs for polynomial
 	for k := 0; k < t-1; k++ {
-		negate := rand.Int()&1 > 0
-		randomCoefficient := rand.Int63n(q-1) + 1
-		if negate {
-			randomCoefficient = -randomCoefficient
-		}
-		a.polynomialCoefficients[k] = randomCoefficient
+		a.polynomialCoefficients[k] = rand.Int63n(q-1) + 1
 	}
 
 	//the secret to share is the constant term of the polynomial
@@ -115,10 +108,9 @@ func (a Agent) run(wg *sync.WaitGroup) {
 		commitments[k] = zmodq.Exp(zmodq.G, coeff)
 	}
 
-	var secretShares []int64
-	for i := 1; i <= numberOfAgents+1; i++ {
-		secretShares = append(secretShares,
-			evaluatePolynomial(a.polynomialCoefficients, int64(i)))
+	var secretShares [numberOfAgents + 1]int64
+	for j := 1; j <= numberOfAgents; j++ {
+		secretShares[j] = evaluatePolynomial(a.polynomialCoefficients, int64(j))
 	}
 
 	// broadcast commitments
@@ -141,7 +133,6 @@ func (a Agent) run(wg *sync.WaitGroup) {
 		case msg := <-a.inbox:
 			a.handleMessage(msg)
 		default:
-			println("Done")
 			return
 		}
 	}
@@ -151,31 +142,16 @@ func (a *Agent) handleMessage(message Message) {
 	switch message.Type {
 	case SecretShare:
 		a.shares[message.From] = message.IntValue
-		// i = a.index
-		// x = a.index
-		// j = message.From
-		// s_j(i) = message.IntValue
-		// k = k
-		// G
-		// println("Got SecretSharefrom: ", message.From)
-		accumulator := zmodq.Identity()
-		var str string
-		for k, commitment := range a.commitments[message.From] {
-			accumulator = zmodq.Times(accumulator,
-				zmodq.Exp(commitment, zmodq.Exp(a.index, int64(k))))
-			str += fmt.Sprintf("k: %d, i: %d, com: %d, acc: %d\n", k, a.index, commitment, accumulator)
-		}
-		println(str)
 		verificationTarget := zmodq.Exp(zmodq.G, message.IntValue)
+		accumulator := zmodq.Identity()
+		for k, commitment := range a.commitments[message.From] {
+			nextTerm := zmodq.Exp(commitment, pow(a.index, int64(k)))
+			accumulator = zmodq.Times(accumulator, nextTerm)
+		}
 		if accumulator != verificationTarget {
-			println("acc: ", accumulator)
-			println("target: ", verificationTarget)
-			println("NOOOOOOOOOOOOO!")
-		} else {
-			println("OK!!")
+			panic("secret share invalid")
 		}
 	case Commitment:
-		// println("Got commitment from: ", message.From)
 		copy(a.commitments[message.From][:], message.IntArrayValue)
 	}
 }
@@ -193,6 +169,7 @@ func broadcast(message Message) {
 }
 
 func main() {
+	fmt.Printf("")
 	var wg sync.WaitGroup
 
 	for i := 0; i < numberOfAgents; i++ {
