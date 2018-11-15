@@ -25,7 +25,7 @@ func (g ZmodQ) Inverse(n int64) int64        { return g.q - n }
 var zmodq ZmodQ = ZmodQ{q, 1}
 
 type Group interface {
-	Add(int64) int64
+	Times(int64) int64
 	Identity() int64
 	Inverse(int64) int64
 }
