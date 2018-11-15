@@ -55,11 +55,11 @@ type Message struct {
 }
 
 func mod(d, m int64) int64 {
-	var res int64 = d % m
-	if (res < 0 && m > 0) || (res > 0 && m < 0) {
-		return res + m
+	var result int64 = d % m
+	if (result < 0 && m > 0) || (result > 0 && m < 0) {
+		return result + m
 	}
-	return res
+	return result
 }
 
 func pow(x int64, y int64) int64 {
