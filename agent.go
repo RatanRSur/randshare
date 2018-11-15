@@ -35,9 +35,9 @@ type Agent struct {
 	index                  int64
 	peers                  []*Agent
 	polynomialCoefficients [t - 1]int64
-	commitments            [numberOfAgents+1][t - 1]int64
+	commitments            [numberOfAgents + 1][t - 1]int64
 	shares                 []int64
-	validSharesReceived    [numberOfAgents+1]bool
+	validSharesReceived    [numberOfAgents + 1]bool
 }
 
 type MessageType uint8
@@ -80,7 +80,7 @@ func evaluatePolynomial(coeffs [t - 1]int64, x int64) int64 {
 
 func newAgent(index int64) *Agent {
 	inbox := make(chan Message, numberOfAgents*numberOfAgents)
-	return &Agent{inbox: inbox, index: index+1}
+	return &Agent{inbox: inbox, index: index + 1}
 }
 
 func (a *Agent) providePeers(agents []*Agent) {
@@ -98,7 +98,7 @@ func (a Agent) run(wg *sync.WaitGroup) {
 
 	//get coeffs for polynomial
 	for k := 0; k < t-1; k++ {
-		negate := rand.Int() & 1 > 0
+		negate := rand.Int()&1 > 0
 		randomCoefficient := rand.Int63n(q-1) + 1
 		if negate {
 			randomCoefficient = -randomCoefficient
