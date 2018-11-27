@@ -8,6 +8,7 @@ import (
 
 const numberOfAgents = 10
 const t = 4
+const f = t - 1
 const q int64 = 7
 
 var agents []*Agent
@@ -37,13 +38,18 @@ type Group interface {
 }
 
 type Agent struct {
-	inbox                  chan Message
-	index                  int64
-	peers                  []*Agent
-	polynomialCoefficients [t - 1]int64
-	commitments            [numberOfAgents + 1][t - 1]int64
-	shares                 []int64
-	validSharesReceived    [numberOfAgents + 1]bool
+	inbox                   chan Message
+	index                   int64
+	peers                   []*Agent
+	polynomialCoefficients  [t - 1]int64
+	commitments             [numberOfAgents + 1][t - 1]int64
+	shares                  [numberOfAgents + 1]int64
+	validShares             [numberOfAgents + 1]int64
+	positiveShareVotes      [numberOfAgents + 1]int64
+	negativeShareVotes      [numberOfAgents + 1]int64
+	positiveCommitmentVotes [numberOfAgents + 1]int64
+	negativeCommitmentVotes [numberOfAgents + 1]int64
+	finalSharesReceived     int
 }
 
 type MessageType uint8
@@ -51,6 +57,9 @@ type MessageType uint8
 const (
 	SecretShare MessageType = iota
 	Commitment
+	ShareVote
+	CommitmentVote
+	FinalValidShareSrslyGuys
 )
 
 type Message struct {
@@ -78,7 +87,11 @@ func evaluatePolynomial(coeffs [t - 1]int64, x int64) int64 {
 
 func newAgent(index int64) *Agent {
 	inbox := make(chan Message, numberOfAgents*numberOfAgents)
-	return &Agent{inbox: inbox, index: index + 1}
+	a := &Agent{inbox: inbox, index: index + 1}
+	for i := range a.validShares {
+		a.validShares[i] = -1
+	}
+	return a
 }
 
 func (a *Agent) providePeers(agents []*Agent) {
@@ -87,7 +100,6 @@ func (a *Agent) providePeers(agents []*Agent) {
 			a.peers = append(a.peers, agent)
 		}
 	}
-	a.shares = make([]int64, numberOfAgents+1)
 }
 
 func (a Agent) run(wg *sync.WaitGroup) {
@@ -148,11 +160,83 @@ func (a *Agent) handleMessage(message Message) {
 			nextTerm := zmodq.Exp(commitment, pow(a.index, int64(k)))
 			accumulator = zmodq.Times(accumulator, nextTerm)
 		}
-		if accumulator != verificationTarget {
-			panic("secret share invalid")
+
+		var votePayload int64
+		if accumulator == verificationTarget {
+			votePayload = 1
+		} else {
+			votePayload = message.IntValue
 		}
+		broadcast(Message{
+			Type:          ShareVote,
+			From:          a.index,
+			IntArrayValue: []int64{a.index, message.From, votePayload},
+		})
 	case Commitment:
 		copy(a.commitments[message.From][:], message.IntArrayValue)
+	case ShareVote:
+		voteSubject := message.IntArrayValue[1]
+		if message.IntArrayValue[2] == 1 {
+			a.positiveShareVotes[voteSubject] += 1
+			if a.positiveShareVotes[voteSubject] == 2*f+1 {
+				votePayload := int64(1)
+				broadcast(Message{
+					Type:          CommitmentVote,
+					From:          a.index,
+					IntArrayValue: []int64{a.index, message.From, votePayload},
+				})
+			}
+		} else {
+			a.negativeShareVotes[voteSubject] += 1
+			if a.negativeShareVotes[voteSubject] == f+1 {
+				votePayload := int64(0)
+				broadcast(Message{
+					Type:          CommitmentVote,
+					From:          a.index,
+					IntArrayValue: []int64{a.index, message.From, votePayload},
+				})
+			}
+		}
+	case CommitmentVote:
+		voteSubject := message.IntArrayValue[1]
+		vote := message.IntArrayValue[2]
+		if vote == 1 {
+			a.positiveCommitmentVotes[voteSubject] += 1
+			if a.positiveCommitmentVotes[voteSubject] == 2*f+1 {
+				a.validShares[voteSubject] = vote
+			}
+		} else {
+			a.negativeCommitmentVotes[voteSubject] += 1
+			if a.negativeCommitmentVotes[voteSubject] == 2*f+1 {
+				a.validShares[voteSubject] = vote
+			}
+		}
+		allDecided := true
+		var validatedShareParties []int
+		for j, valid := range a.validShares {
+			if valid == -1 {
+				allDecided = false
+				break
+			}
+			validatedShareParties = append(validatedShareParties, j)
+		}
+		if allDecided {
+			if len(validatedShareParties) > f {
+				for _, j := range validatedShareParties {
+					broadcast(Message{
+						Type:     FinalValidShareSrslyGuys,
+						From:     a.index,
+						IntValue: a.shares[j],
+					})
+				}
+			}
+		}
+	case FinalValidShareSrslyGuys:
+		a.finalSharesReceived += 1
+		if a.finalSharesReceived == t {
+			// do lagrange interpolation here to roc
+
+		}
 	}
 }
 
