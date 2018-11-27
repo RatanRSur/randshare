@@ -240,6 +240,27 @@ func (a *Agent) handleMessage(message Message) {
 	}
 }
 
+type Point struct{ x, y int64 }
+
+func lagrangeInterpolation(x int64, points []Point) int64 {
+	agg := int64(0)
+	for j, point := range points {
+		agg += point.y * l(x, j, points)
+	}
+	return agg
+}
+
+func l(x int64, j int, points []Point) int64 {
+	agg := int64(1)
+	for i, point := range points {
+		if i == j {
+			continue
+		}
+		agg *= (x - point.x) / (points[j].x - point.x)
+	}
+	return agg
+}
+
 func (a Agent) tell(message Message) {
 	a.inbox <- message
 }
