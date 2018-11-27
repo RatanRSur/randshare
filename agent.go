@@ -232,8 +232,11 @@ func (a *Agent) handleMessage(message Message) {
 			}
 		}
 	case FinalValidShareSrslyGuys:
-		a.finalSharesReceived += 1
-		if a.finalSharesReceived == t {
+		// TODO: store all shares in 2D array. When enough received, do lagrange interpolation to recover S_j(0) and use that to compute the random string, yo.
+
+		//a.finalSharesReceived = append(a.finalSharesReceived, Point{message.From, message.IntValue)
+		//if len(a.finalSharesReceived) == t {
+			//lagrangeInterpolation(0, shares)
 			// do lagrange interpolation here to roc
 
 		}
